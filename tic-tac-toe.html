@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tic Tac Toe</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #ffffff; --text: #1f2430; --muted: #6b7280;
+    --x: #e5484d; --o: #3b82f6; --line: #d9dce3; --accent: #4f46e5; --win: #dcfce7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161b; --card: #1e2128; --text: #eceef3; --muted: #9aa1b0;
+      --line: #343944; --win: #14532d;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; padding: 16px;
+  }
+  .app {
+    width: 100%; max-width: 380px; background: var(--card); border-radius: 16px;
+    padding: 20px; box-shadow: 0 6px 24px rgba(0,0,0,.12);
+  }
+  h1 { margin: 0 0 14px; font-size: 1.4rem; text-align: center; }
+  .settings { display: flex; gap: 8px; margin-bottom: 14px; }
+  select, button {
+    font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--card); color: var(--text); cursor: pointer;
+  }
+  select { flex: 1; }
+  .score { display: flex; gap: 8px; margin-bottom: 12px; }
+  .score div {
+    flex: 1; text-align: center; padding: 8px 4px; border-radius: 10px; background: var(--bg);
+  }
+  .score span { display: block; font-size: .75rem; color: var(--muted); }
+  .score b { font-size: 1.4rem; }
+  #sx b { color: var(--x); } #so b { color: var(--o); }
+  #status { text-align: center; margin: 8px 0 12px; min-height: 1.4em; font-weight: 600; }
+  .board-wrap { position: relative; }
+  .board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .cell {
+    aspect-ratio: 1; font-size: 2.6rem; font-weight: 700; border-radius: 12px;
+    border: 2px solid var(--line); background: var(--bg); padding: 0;
+  }
+  .cell.X { color: var(--x); } .cell.O { color: var(--o); }
+  .cell.win { background: var(--win); }
+  .cell:disabled { cursor: not-allowed; }
+  #overlay {
+    position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+    background: rgba(0,0,0,.55); color: #fff; border-radius: 12px; font-size: 1.4rem; font-weight: 700;
+  }
+  #overlay.show { display: flex; }
+  .controls { display: flex; gap: 8px; margin-top: 14px; }
+  .controls button { flex: 1; }
+  #pauseBtn { background: var(--accent); color: #fff; border-color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>Tic Tac Toe</h1>
+
+  <div class="settings">
+    <select id="mode" aria-label="Game mode">
+      <option value="pvp">2 Players</option>
+      <option value="cpu">vs Computer</option>
+    </select>
+    <select id="difficulty" aria-label="Difficulty" hidden>
+      <option value="easy">Easy</option>
+      <option value="hard">Hard</option>
+    </select>
+  </div>
+
+  <div class="score">
+    <div id="sx"><span id="nameX">Player X</span><b>0</b></div>
+    <div id="sd"><span>Draws</span><b>0</b></div>
+    <div id="so"><span id="nameO">Player O</span><b>0</b></div>
+  </div>
+
+  <div id="status"></div>
+
+  <div class="board-wrap">
+    <div class="board" id="board"></div>
+    <div id="overlay">⏸ Paused</div>
+  </div>
+
+  <div class="controls">
+    <button id="pauseBtn">Pause</button>
+    <button id="resetBtn">Reset Round</button>
+    <button id="clearBtn">Reset Score</button>
+  </div>
+</div>
+
+<script>
+const WINS = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+const $ = id => document.getElementById(id);
+const boardEl = $('board');
+
+let board, current, over, paused, cpuTimer;
+let scores = { X: 0, O: 0, D: 0 };
+
+// build cells once
+const cells = [];
+for (let i = 0; i < 9; i++) {
+  const b = document.createElement('button');
+  b.className = 'cell';
+  b.setAttribute('aria-label', 'Cell ' + (i + 1));
+  b.addEventListener('click', () => humanMove(i));
+  boardEl.appendChild(b);
+  cells.push(b);
+}
+
+const isCpu = () => $('mode').value === 'cpu';
+
+function newRound() {
+  clearTimeout(cpuTimer);
+  board = Array(9).fill(null);
+  current = 'X';
+  over = false;
+  paused = false;
+  $('overlay').classList.remove('show');
+  $('pauseBtn').textContent = 'Pause';
+  render();
+}
+
+function render(winLine = []) {
+  cells.forEach((c, i) => {
+    c.textContent = board[i] || '';
+    c.className = 'cell' + (board[i] ? ' ' + board[i] : '') + (winLine.includes(i) ? ' win' : '');
+    c.disabled = !!board[i] || over || paused;
+  });
+  $('sx').querySelector('b').textContent = scores.X;
+  $('so').querySelector('b').textContent = scores.O;
+  $('sd').querySelector('b').textContent = scores.D;
+  $('nameX').textContent = isCpu() ? 'You (X)' : 'Player X';
+  $('nameO').textContent = isCpu() ? 'Computer (O)' : 'Player O';
+  if (!over) {
+    $('status').textContent = paused ? 'Game paused'
+      : isCpu() ? (current === 'X' ? 'Your turn' : 'Computer is thinking…')
+      : `Player ${current}'s turn`;
+  }
+}
+
+function winnerOf(b) {
+  for (const l of WINS) {
+    if (b[l[0]] && b[l[0]] === b[l[1]] && b[l[0]] === b[l[2]]) return { p: b[l[0]], line: l };
+  }
+  return null;
+}
+
+function place(i) {
+  board[i] = current;
+  const w = winnerOf(board);
+  if (w) {
+    over = true; scores[w.p]++;
+    render(w.line);
+    $('status').textContent = isCpu() ? (w.p === 'X' ? 'You win! 🎉' : 'Computer wins!') : `Player ${w.p} wins! 🎉`;
+    return;
+  }
+  if (board.every(Boolean)) {
+    over = true; scores.D++;
+    render();
+    $('status').textContent = "It's a draw!";
+    return;
+  }
+  current = current === 'X' ? 'O' : 'X';
+  render();
+  if (isCpu() && current === 'O') scheduleCpu();
+}
+
+function humanMove(i) {
+  if (paused || over || board[i]) return;
+  if (isCpu() && current === 'O') return;
+  place(i);
+}
+
+function scheduleCpu() {
+  clearTimeout(cpuTimer);
+  cpuTimer = setTimeout(() => {
+    if (paused || over) return;
+    place(pickCpuMove());
+  }, 500);
+}
+
+function pickCpuMove() {
+  const empty = board.map((v, i) => v ? null : i).filter(v => v !== null);
+  if ($('difficulty').value === 'easy') return empty[Math.floor(Math.random() * empty.length)];
+  let best = -Infinity, move = empty[0];
+  for (const i of empty) {
+    board[i] = 'O';
+    const s = minimax(board, false, 0);
+    board[i] = null;
+    if (s > best) { best = s; move = i; }
+  }
+  return move;
+}
+
+function minimax(b, isO, depth) {
+  const w = winnerOf(b);
+  if (w) return w.p === 'O' ? 10 - depth : depth - 10;
+  if (b.every(Boolean)) return 0;
+  let best = isO ? -Infinity : Infinity;
+  for (let i = 0; i < 9; i++) {
+    if (b[i]) continue;
+    b[i] = isO ? 'O' : 'X';
+    const s = minimax(b, !isO, depth + 1);
+    b[i] = null;
+    best = isO ? Math.max(best, s) : Math.min(best, s);
+  }
+  return best;
+}
+
+// Pause / Resume
+$('pauseBtn').addEventListener('click', () => {
+  if (over) return;
+  paused = !paused;
+  $('overlay').classList.toggle('show', paused);
+  $('pauseBtn').textContent = paused ? 'Resume' : 'Pause';
+  if (paused) clearTimeout(cpuTimer);
+  else if (isCpu() && current === 'O') scheduleCpu();
+  render();
+});
+
+$('resetBtn').addEventListener('click', newRound);
+
+$('clearBtn').addEventListener('click', () => {
+  scores = { X: 0, O: 0, D: 0 };
+  newRound();
+});
+
+$('mode').addEventListener('change', () => {
+  $('difficulty').hidden = !isCpu();
+  scores = { X: 0, O: 0, D: 0 };
+  newRound();
+});
+
+$('difficulty').addEventListener('change', () => {
+  scores = { X: 0, O: 0, D: 0 };
+  newRound();
+});
+
+newRound();
+</script>
+</body>
+</html>
